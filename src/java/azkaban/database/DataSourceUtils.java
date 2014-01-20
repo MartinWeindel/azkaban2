@@ -125,7 +125,16 @@ public class DataSourceUtils {
 			super();
 			
 			String url = "jdbc:mysql://" + (host + ":" + port + "/" + dbName);
-			setDriverClassName("com.mysql.jdbc.Driver");
+			// try if Mariadb JDBC driver is available
+			String driver = "org.mariadb.jdbc.Driver";
+			try {
+				Class.forName(driver);
+			} catch (Exception e) {
+				logger.debug("Class " + driver + " not found.");
+				// fallback: use original mysql driver
+				driver = "com.mysql.jdbc.Driver";
+			}
+			setDriverClassName(driver);
 			setUsername(user);
 			setPassword(password);
 			setUrl(url);
