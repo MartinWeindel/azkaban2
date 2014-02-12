@@ -53,6 +53,8 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 	
 	private ExecutorManagerEventListener listener = new ExecutorManagerEventListener();
 	
+	private final Object syncObj = new Object();
+	
 	private String scannerStage = "";
 	
 	public TriggerManager(Props props, TriggerLoader triggerLoader, ExecutorManager executorManager) throws TriggerManagerException {
@@ -83,7 +85,7 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 	@Override
 	public void start() throws TriggerManagerException{
 		
-		try{
+		try {
 			// expect loader to return valid triggers
 			List<Trigger> triggers = triggerLoader.loadTriggers();
 			for(Trigger t : triggers) {
@@ -106,51 +108,61 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 		return actionTypeLoader;
 	}
 
-	public synchronized void insertTrigger(Trigger t) throws TriggerManagerException {
-		try {
-			triggerLoader.addTrigger(t);
-		} catch (TriggerLoaderException e) {
-			throw new TriggerManagerException(e);
-		}
-		runnerThread.addTrigger(t);
-		triggerIdMap.put(t.getTriggerId(), t);
-	}
-	
-	public synchronized void removeTrigger(int id) throws TriggerManagerException {
-		Trigger t = triggerIdMap.get(id);
-		if(t != null) {
-			removeTrigger(triggerIdMap.get(id));
+	public void insertTrigger(Trigger t) throws TriggerManagerException {
+		synchronized (syncObj) {
+			try {
+				triggerLoader.addTrigger(t);
+			} catch (TriggerLoaderException e) {
+				throw new TriggerManagerException(e);
+			}
+			runnerThread.addTrigger(t);
+			triggerIdMap.put(t.getTriggerId(), t);
 		}
 	}
 	
-	public synchronized void updateTrigger(int id) throws TriggerManagerException {
-		if(! triggerIdMap.containsKey(id)) {
-			throw new TriggerManagerException("The trigger to update " + id + " doesn't exist!");
+	public void removeTrigger(int id) throws TriggerManagerException {
+		synchronized (syncObj) {
+			Trigger t = triggerIdMap.get(id);
+			if(t != null) {
+				removeTrigger(triggerIdMap.get(id));
+			}	
 		}
-		
-		Trigger t;
-		try {
-			t = triggerLoader.loadTrigger(id);
-		} catch (TriggerLoaderException e) {
-			throw new TriggerManagerException(e);
-		}
-		updateTrigger(t);
 	}
 	
-	public synchronized void updateTrigger(Trigger t) throws TriggerManagerException {
-		runnerThread.deleteTrigger(triggerIdMap.get(t.getTriggerId()));
-		runnerThread.addTrigger(t);
-		triggerIdMap.put(t.getTriggerId(), t);
+	public void updateTrigger(int id) throws TriggerManagerException {
+		synchronized (syncObj) {
+			if(! triggerIdMap.containsKey(id)) {
+				throw new TriggerManagerException("The trigger to update " + id + " doesn't exist!");
+			}
+			
+			Trigger t;
+			try {
+				t = triggerLoader.loadTrigger(id);
+			} catch (TriggerLoaderException e) {
+				throw new TriggerManagerException(e);
+			}
+			updateTrigger(t);	
+		}
+	}
+	
+	public void updateTrigger(Trigger t) throws TriggerManagerException {
+		synchronized (syncObj) {
+			runnerThread.deleteTrigger(triggerIdMap.get(t.getTriggerId()));
+			runnerThread.addTrigger(t);
+			triggerIdMap.put(t.getTriggerId(), t);	
+		}
 	}
 
-	public synchronized void removeTrigger(Trigger t) throws TriggerManagerException {
-		runnerThread.deleteTrigger(t);
-		triggerIdMap.remove(t.getTriggerId());
-		try {
-			t.stopCheckers();
-			triggerLoader.removeTrigger(t);
-		} catch (TriggerLoaderException e) {
-			throw new TriggerManagerException(e);
+	public void removeTrigger(Trigger t) throws TriggerManagerException {
+		synchronized (syncObj) {
+			runnerThread.deleteTrigger(t);
+			triggerIdMap.remove(t.getTriggerId());
+			try {
+				t.stopCheckers();
+				triggerLoader.removeTrigger(t);
+			} catch (TriggerLoaderException e) {
+				throw new TriggerManagerException(e);
+			}	
 		}
 	}
 	
@@ -173,7 +185,7 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 			triggers = new PriorityBlockingQueue<Trigger>(1, new TriggerComparator());
 			justFinishedFlows = new ConcurrentHashMap<Integer, ExecutableFlow>();
 			this.setName("TriggerRunnerManager-Trigger-Scanner-Thread");
-			this.scannerInterval = scannerInterval;;
+			this.scannerInterval = scannerInterval;
 		}
 
 		public void shutdown() {
@@ -183,29 +195,33 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 			this.interrupt();
 		}
 		
-		public synchronized void addJustFinishedFlow(ExecutableFlow flow) {
-			justFinishedFlows.put(flow.getExecutionId(), flow);
+		public void addJustFinishedFlow(ExecutableFlow flow) {
+			synchronized (syncObj) {
+				justFinishedFlows.put(flow.getExecutionId(), flow);		
+			}
 		}
 		
-		public synchronized void addTrigger(Trigger t) {
-			t.updateNextCheckTime();
-			triggers.add(t);
+		public void addTrigger(Trigger t) {
+			synchronized (syncObj) {
+				t.updateNextCheckTime();
+				triggers.add(t);	
+			}
 		}
 		
-		public synchronized void deleteTrigger(Trigger t) {
+		public void deleteTrigger(Trigger t) {
 			triggers.remove(t);
 		}
 
 		public void run() {
 			//while(stillAlive.get()) {
 			while(!shutdown) {
-				synchronized (this) {
-					try{
+				synchronized (syncObj) {
+					try {
 						lastRunnerThreadCheckTime = System.currentTimeMillis();
 						
 						scannerStage = "Ready to start a new scan cycle at " + lastRunnerThreadCheckTime;
 						
-						try{
+						try {
 							checkAllTriggers();
 							justFinishedFlows.clear();
 						} catch(Exception e) {
@@ -215,15 +231,15 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 							t.printStackTrace();
 							logger.error(t.getMessage());
 						}
-						
+					
 						scannerStage = "Done flipping all triggers.";
 						
 						runnerThreadIdleTime = scannerInterval - (System.currentTimeMillis() - lastRunnerThreadCheckTime);
-
+	
 						if(runnerThreadIdleTime < 0) {
 							logger.error("Trigger manager thread " + this.getName() + " is too busy!");
 						} else {
-							wait(runnerThreadIdleTime);
+							syncObj.wait(runnerThreadIdleTime);
 						}
 					} catch(InterruptedException e) {
 						logger.info("Interrupted. Probably to shut down.");
@@ -343,8 +359,10 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 		}
 	}
 	
-	public synchronized Trigger getTrigger(int triggerId) {
-		return triggerIdMap.get(triggerId);
+	public Trigger getTrigger(int triggerId) {
+		synchronized (syncObj) {
+			return triggerIdMap.get(triggerId);	
+		}
 	}
 
 	public void expireTrigger(int triggerId) {
@@ -386,20 +404,6 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 		return triggers;
 	}
 
-//	public void loadTrigger(int triggerId) throws TriggerManagerException {
-//		Trigger t;
-//		try {
-//			t = triggerLoader.loadTrigger(triggerId);
-//		} catch (TriggerLoaderException e) {
-//			throw new TriggerManagerException(e);
-//		}
-//		if(t.getStatus().equals(TriggerStatus.PREPARING)) {
-//			triggerIdMap.put(t.getTriggerId(), t);
-//			runnerThread.addTrigger(t);
-//			t.setStatus(TriggerStatus.READY);
-//		}
-//	}
-
 	@Override
 	public void insertTrigger(Trigger t, String user) throws TriggerManagerException {
 		insertTrigger(t);
@@ -414,19 +418,6 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 	public void updateTrigger(Trigger t, String user) throws TriggerManagerException {
 		updateTrigger(t);
 	}
-	
-//	@Override
-//	public void insertTrigger(int triggerId, String user) throws TriggerManagerException {
-//		Trigger t;
-//		try {
-//			t = triggerLoader.loadTrigger(triggerId);
-//		} catch (TriggerLoaderException e) {
-//			throw new TriggerManagerException(e);
-//		}
-//		if(t != null) {
-//			insertTrigger(t);
-//		}
-//	}
 	
 	@Override
 	public void shutdown() {
@@ -510,12 +501,14 @@ public class TriggerManager extends EventHandler implements TriggerManagerAdapte
 		}
 		
 		@Override
-		public synchronized void handleEvent(Event event) {
-			
-			ExecutableFlow flow = (ExecutableFlow) event.getRunner();
-			if (event.getType() == Type.FLOW_FINISHED) {
-				logger.info("Flow finish event received. " + flow.getExecutionId() );
-				runnerThread.addJustFinishedFlow(flow);
+		public void handleEvent(Event event) {
+			// this needs to be fixed for perf
+			synchronized (syncObj) {
+				ExecutableFlow flow = (ExecutableFlow) event.getRunner();
+				if (event.getType() == Type.FLOW_FINISHED) {
+					logger.info("Flow finish event received. " + flow.getExecutionId() );
+					runnerThread.addJustFinishedFlow(flow);
+				}
 			}
 		}
 	}

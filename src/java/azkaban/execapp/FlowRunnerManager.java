@@ -463,7 +463,7 @@ public class FlowRunnerManager implements EventListener {
 			throw new ExecutorManagerException("Execution " + execId + " is not running.");
 		}
 		
-		runner.cancel(user);
+		runner.kill(user);
 	}
 	
 	public void pauseFlow(int execId, String user) throws ExecutorManagerException {
@@ -601,7 +601,11 @@ public class FlowRunnerManager implements EventListener {
 				if (attachmentFile == null || !attachmentFile.exists()) {
 					return null;
 				}
-				return (ArrayList<Object>) JSONUtils.parseJSONFromFile(attachmentFile);
+				
+				@SuppressWarnings("unchecked")
+        List<Object> jobAttachments = (ArrayList<Object>) JSONUtils.parseJSONFromFile(attachmentFile); 
+				
+				return jobAttachments;
 			}
 		}
 		catch (IOException e) {

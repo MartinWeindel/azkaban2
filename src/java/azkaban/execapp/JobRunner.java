@@ -87,7 +87,7 @@ public class JobRunner extends EventHandler implements Runnable {
 	private int jobLogBackupIndex;
 
 	private long delayStartMs = 0;
-	private boolean cancelled = false;
+	private boolean killed = false;
 	private BlockingStatus currentBlockStatus = null;
 	
 	public JobRunner(ExecutableNode node, File workingDir, ExecutorLoader loader, JobTypeManager jobtypeManager) {
@@ -259,15 +259,15 @@ public class JobRunner extends EventHandler implements Runnable {
 		boolean quickFinish = false;
 		long time = System.currentTimeMillis();
 		
-		if (this.isCancelled() || Status.isStatusFinished(nodeStatus)) {
+		if (Status.isStatusFinished(nodeStatus)) {
 			quickFinish = true;
 		}
 		else if (nodeStatus == Status.DISABLED) {
 			changeStatus(Status.SKIPPED, time);
 			quickFinish = true;
 		} 
-		else if (this.cancelled) {
-			changeStatus(Status.FAILED, time);
+		else if (this.isKilled()) {
+			changeStatus(Status.KILLED, time);
 			quickFinish = true;
 		} 
 		
@@ -286,7 +286,7 @@ public class JobRunner extends EventHandler implements Runnable {
 	 * If pipelining is set, will block on another flow's jobs.
 	 */
 	private boolean blockOnPipeLine() {
-		if (this.isCancelled()) {
+		if (this.isKilled()) {
 			return true;
 		}
 		
@@ -309,8 +309,8 @@ public class JobRunner extends EventHandler implements Runnable {
 					logger.info("Waiting on pipelined job " + bStatus.getJobId());
 					currentBlockStatus = bStatus;
 					bStatus.blockOnFinishedStatus();
-					if (this.isCancelled()) {
-						logger.info("Job was cancelled while waiting on pipeline. Quiting.");
+					if (this.isKilled()) {
+						logger.info("Job was killed while waiting on pipeline. Quiting.");
 						return true;
 					}
 					else {
@@ -325,7 +325,7 @@ public class JobRunner extends EventHandler implements Runnable {
 	}
 	
 	private boolean delayExecution() {
-		if (this.isCancelled()) {
+		if (this.isKilled()) {
 			return true;
 		}
 		
@@ -342,8 +342,8 @@ public class JobRunner extends EventHandler implements Runnable {
 				}
 			}
 			
-			if (this.isCancelled()) {
-				logger.info("Job was cancelled while in delay. Quiting.");
+			if (this.isKilled()) {
+				logger.info("Job was killed while in delay. Quiting.");
 				return true;
 			}
 		}
@@ -420,7 +420,7 @@ public class JobRunner extends EventHandler implements Runnable {
 
 		// Start the node.
 		node.setStartTime(System.currentTimeMillis());
-		if (!errorFound && !isCancelled()) {
+		if (!errorFound && !isKilled()) {
 			fireEvent(Event.create(this, Type.JOB_STARTED, null, false));
 			try {
 				loader.uploadExecutableNode(node, props);
@@ -434,7 +434,6 @@ public class JobRunner extends EventHandler implements Runnable {
 				writeStatus();
 				fireEvent(Event.create(this, Type.JOB_STATUS_CHANGED), false);
 				runJob();
-				writeStatus();
 			}
 			else {
 				changeStatus(Status.FAILED);
@@ -443,25 +442,29 @@ public class JobRunner extends EventHandler implements Runnable {
 		}
 		node.setEndTime(System.currentTimeMillis());
 
-		if (isCancelled()) {
-			changeStatus(Status.FAILED);
+		if (isKilled()) {
+			// even if it's killed, there is a chance that the job failed is marked as failure,
+			// So we set it to KILLED to make sure we know that we forced kill it rather than
+			// it being a legitimate failure.
+			changeStatus(Status.KILLED);
 		}
-		logInfo("Finishing job " + this.jobId + " at " + node.getEndTime());
+		logInfo("Finishing job " + this.jobId + " at " + node.getEndTime() + " with status " + node.getStatus());
 		
 		fireEvent(Event.create(this, Type.JOB_FINISHED), false);
 		finalizeLogFile();
 		finalizeAttachmentFile();
+		writeStatus();
 	}
 	
 	private boolean prepareJob() throws RuntimeException {
 		// Check pre conditions
-		if (props == null || cancelled) {
+		if (props == null || this.isKilled()) {
 			logError("Failing job. The job properties don't exist");
 			return false;
 		}
 		
 		synchronized (syncObject) {
-			if (node.getStatus() == Status.FAILED || cancelled) {
+			if (node.getStatus() == Status.FAILED || this.isKilled()) {
 				return false;
 			}
 
@@ -557,10 +560,13 @@ public class JobRunner extends EventHandler implements Runnable {
 		this.fireEventListeners(event);
 	}
 	
-	public void cancel() {
+	public void kill() {
 		synchronized (syncObject) {
-			logError("Cancel has been called.");
-			this.cancelled = true;
+			if (Status.isStatusFinished(node.getStatus())) {
+				return;
+			}
+			logError("Kill has been called.");
+			this.killed = true;
 			
 			BlockingStatus status = currentBlockStatus;
 			if (status != null) {
@@ -576,7 +582,7 @@ public class JobRunner extends EventHandler implements Runnable {
 				}
 				return;
 			}
-	
+
 			try {
 				job.cancel();
 			}
@@ -584,11 +590,13 @@ public class JobRunner extends EventHandler implements Runnable {
 				logError(e.getMessage());
 				logError("Failed trying to cancel job. Maybe it hasn't started running yet or just finished.");
 			}
+			
+			this.changeStatus(Status.KILLED);
 		}
 	}
 	
-	public boolean isCancelled() {
-		return cancelled;
+	public boolean isKilled() {
+		return killed;
 	}
 	
 	public Status getStatus() {
@@ -654,6 +662,5 @@ public class JobRunner extends EventHandler implements Runnable {
 		}
 
 		return attempt > 0 ? "_job." + executionId + "." + attempt + "." + jobId + ".attach" : "_job." + executionId + "." + jobId + ".attach";
-
 	}
 }
