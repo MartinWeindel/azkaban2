@@ -53,8 +53,6 @@
         rev="${log4j.version}" conf="default->master" />
     <dependency name="mail" org="javax.mail" 
         rev="${mail.version}" conf="default->master" />
-    <dependency name="mysql-connector-java" org="mysql" 
-        rev="${mysql-connector.version}" conf="default->master" />
     <dependency name="servlet-api" org="javax.servlet" 
         rev="${servlet-api.version}" conf="default->master" />
     <dependency name="slf4j-api" org="org.slf4j" 
@@ -65,5 +63,7 @@
         rev="${velocity.version}" conf="default->master" />
     <dependency name="velocity-tools" org="org.apache.velocity" 
         rev="${velocity-tools.version}" conf="default->master" />
+    <dependency name="mariadb-java-client" org="org.mariadb.jdbc"  
+        rev="${mariadb-java-client.version}" />
   </dependencies>
 </ivy-module>

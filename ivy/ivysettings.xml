@@ -5,6 +5,9 @@
   <property name="oss.sonatype.org"
       value="https://oss.sonatype.org/content/groups/public/"
       override="false"/>
+  <property name="repo.spring.io"
+      	value="http://repo.spring.io/plugins-release/"
+      override="false"/>
   <property name="maven2.pattern"
       value="[organisation]/[module]/[revision]/[module]-[revision]"/>
   <property name="maven2.pattern.ext"
@@ -19,9 +22,14 @@
         root="${oss.sonatype.org}"
         pattern="${maven2.pattern.ext}"
         m2compatible="true" />
+    <ibiblio name="springsource"
+        root="${repo.spring.io}"
+        pattern="${maven2.pattern.ext}"
+        m2compatible="true" />
     <chain name="default" dual="true">
       <resolver ref="maven2" />
       <resolver ref="oss-sonatype" />
+      <resolver ref="springsource" />
     </chain>
   </resolvers>
 </ivysettings>
