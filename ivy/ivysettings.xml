@@ -8,6 +8,9 @@
   <property name="repo.spring.io"
       	value="http://repo.spring.io/plugins-release/"
       override="false"/>
+  <property name="repo.build.nexus"
+      	value="http://cep-build:8180/nexus/service/local/repositories/thirdparty/content/"
+      override="false"/>
   <property name="maven2.pattern"
       value="[organisation]/[module]/[revision]/[module]-[revision]"/>
   <property name="maven2.pattern.ext"
@@ -26,10 +29,15 @@
         root="${repo.spring.io}"
         pattern="${maven2.pattern.ext}"
         m2compatible="true" />
+    <ibiblio name="build-nexus"
+        root="${repo.build.nexus}"
+        pattern="${maven2.pattern.ext}"
+        m2compatible="true" />
     <chain name="default" dual="true">
       <resolver ref="maven2" />
       <resolver ref="oss-sonatype" />
       <resolver ref="springsource" />
+      <resolver ref="build-nexus" />
     </chain>
   </resolvers>
 </ivysettings>
